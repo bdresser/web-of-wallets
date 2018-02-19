@@ -4,8 +4,8 @@
   "private": true,
   "dependencies": {
     "cytoscape": "^3.2.9",
+    "keyboardjs": "^2.4.1",
     "react": "^16.2.0",
-    "react-cytoscape": "^1.0.6",
     "react-dom": "^16.2.0",
     "react-scripts": "1.1.1"
   },
