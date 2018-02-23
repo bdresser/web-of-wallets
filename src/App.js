@@ -8,7 +8,9 @@ const cyStyle = [
   {
     selector: 'node',
     style: {
-      'content': 'data(text)'
+      'content': 'data(text)',
+      'background-opacity': 0.5,
+      'background-color': 'grey',
     }
   },
   {
@@ -18,6 +20,14 @@ const cyStyle = [
       'border-width': '.1em',
       'border-style': 'solid',
       'border-color': 'blue',
+      'line-color': 'blue',
+    }
+  },
+  {
+    selector: 'edge',
+    style: {
+      'mid-target-arrow-shape': 'triangle',
+      'arrow-scale': 1.5,
     }
   }
 ]
@@ -40,19 +50,11 @@ class App extends Component {
   inputText() { 
     this.lastContext = keyboardJS.getContext()
     keyboardJS.setContext('textInput')
-
     return new Promise((resolve, reject) => {
-      const f = resolve => () => {
-        return resolve(document.getElementById('textInput').value)
-      }
-      const f2 = reject => () => {
-        return reject('pressed cancel')
-      }
-
       this.setState({
         showInput: true,
         inputSubmitHandler: () => { return resolve(document.getElementById('textInput').value) },
-        inputCancelHandler: () => { return reject('pressed cancel') },
+        inputCancelHandler: () => { return reject('canceled by user') },
       })
       document.getElementById('textInput').focus()
     })
@@ -124,14 +126,16 @@ class App extends Component {
             console.log('add node submit: ', result)
             cy.add({
               data: { id: this.nextId(), text: result },
-              renderedPosition: { x: window.innerWidth / 2 , y: window.innerHeight / 2 },
+              renderedPosition: {
+                x: window.innerWidth / 2,
+                y: window.innerHeight / 2,
+              },
             })
-            this.hideInput()
           })
           .catch(error => {
             console.log('add node canceled: ', error)
-            this.hideInput()
           })
+          .finally(() => { this.hideInput() })
       })
     })
 
@@ -143,12 +147,11 @@ class App extends Component {
           .then(result => {
             console.log('edit text input submit: ', result)
             selectedNode.data('text', result)
-            this.hideInput()
           })
           .catch(error => {
             console.log('edit node text canceled: ', error)
-            this.hideInput()
           })
+          .finally(() => { this.hideInput() })
       })
       keyboardJS.bind('d', e => {
         const selectedNode = this.state.selectedNodes[0]
@@ -158,6 +161,31 @@ class App extends Component {
     })
 
     keyboardJS.withContext('multipleNodes', () => {
+      const toggleEdge = (a, b) => {
+        const edgeId = `#${a}${b}`
+        const edge = cy.$(edgeId)
+        if (edge.length) {
+          cy.remove(edgeId)
+        } else {
+          cy.add({ data: { id: a + b, source: a, target: b } })
+        }
+      }
+      const toggleEdges = (nodes, reverse) => {
+        if (nodes.length > 1) {
+          for (let i = 0; i < nodes.length - 1; i++) {
+            toggleEdge(
+              nodes[i + (reverse ? 1 : 0)].data().id,
+              nodes[i + (reverse ? 0 : 1)].data().id
+            )
+          }
+        }
+      }
+      keyboardJS.bind('c', e => {
+        toggleEdges(this.state.selectedNodes)
+      })
+      keyboardJS.bind('shift + c', e => {
+        toggleEdges(this.state.selectedNodes, true)
+      })
       keyboardJS.bind('g', e => {
         console.log('group nodes')
       })
