@@ -200,6 +200,17 @@ class App extends Component {
       })
     })
 
+    keyboardJS.bind('ctrl + s', e => {
+      console.log('save')
+      const json = cy.json()
+      window.localStorage.setItem('mindmap', JSON.stringify(json))
+    })
+    keyboardJS.bind('ctrl + o', e => {
+      console.log('load')
+      const json = JSON.parse(window.localStorage.getItem('mindmap'))
+      cy.json(json)
+    })
+
     keyboardJS.setContext('root')
   }
 
