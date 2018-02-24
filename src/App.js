@@ -1,5 +1,6 @@
 import React, { Component } from 'react'
 import cytoscape from 'cytoscape'
+import coseBilkent from 'cytoscape-cose-bilkent'
 import keyboardJS from 'keyboardjs'
 import uniqid from 'uniqid'
 import { SketchPicker } from 'react-color'
@@ -106,19 +107,9 @@ class App extends Component {
   }
 
   componentDidMount() {
-    const a = this.nextId()
-    const b = this.nextId()
+    cytoscape.use(coseBilkent)
     const cy = cytoscape({
       container: document.getElementById('cy'),
-      elements: {
-        nodes: [
-          { data: { id: a, text: 'A' } },
-          { data: { id: b, text: 'B' } },
-        ],
-        edges: [
-          { data: { id: a.concat(b), source: a, target: b } }
-        ]
-      },
       style: cyStyle
     })
     window.cy = cy
@@ -149,6 +140,21 @@ class App extends Component {
     cy.on('remove', 'node', e => {
       e.target.unselect()
     })
+
+    const layoutOptions = {
+      name: 'cose-bilkent',
+      ready: () => {
+        this.setState({runningLayout: true})
+      },
+      stop: () => {
+        this.setState({runningLayout: false})
+      },
+      animate: false,
+      fit: false,
+      padding: 10,
+      nodeDimensionsIncludeLabels: true,
+      randomize: false,
+    }
 
     keyboardJS.withContext('root', () => {
       keyboardJS.bind('a', null, e => {
@@ -199,34 +205,7 @@ class App extends Component {
       })
       keyboardJS.bind('x', null, e => {
         if (!this.state.runningLayout) {
-          const options = {
-            name: 'cose',
-            ready: () => {
-              this.setState({runningLayout: true})
-            },
-            stop: () => {
-              this.setState({runningLayout: false})
-            },
-            animate: true,
-            animationThreshold: 250,
-            refresh: 20,
-            fit: true,
-            padding: 30,
-            nodeRepulsion: node => (2048),
-            nodeOverlap: 4,
-            idealEdgeLength: edge => (32),
-            edgeElasticity: edge => (32),
-            nodeDimensionsIncludeLabels: true,
-            nestingFactor: 1.2,
-            gravity: 1,
-            numIter: 1000,
-            initialTemp: 1000,
-            coolingFactor: 0.99,
-            minTemp: 1.0,
-            weaver: false,
-          }
-          const layout = cy.layout(options)
-          layout.run()
+          cy.layout(layoutOptions).run()
         }
       })
     })
@@ -359,6 +338,14 @@ class App extends Component {
             console.log('set node color canceled: ', error)
           })
           .finally(() => { this.hideColor() })
+      })
+      keyboardJS.bind('x', null, e => {
+        if (!this.state.runningLayout) {
+          const others = cy.nodes().difference(':selected')
+          others.lock()
+          cy.layout(layoutOptions).run()
+          others.unlock()
+        }
       })
     })
 

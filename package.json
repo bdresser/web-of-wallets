@@ -4,6 +4,7 @@
   "private": true,
   "dependencies": {
     "cytoscape": "^3.2.9",
+    "cytoscape-cose-bilkent": "^4.0.0",
     "keyboardjs": "^2.4.1",
     "react": "^16.2.0",
     "react-color": "^2.13.8",
