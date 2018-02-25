@@ -30,8 +30,8 @@ const cyStyle = [
       'background-color': null,
       'border-width': '.3em',
       'border-style': 'solid',
-      'border-color': 'black',
-      'line-color': 'black',
+      'border-color': 'white',
+      'line-color': 'white',
     }
   },
   {
@@ -56,6 +56,8 @@ class App extends Component {
       selectedColor: '#fff',
       presetColors: ['#fff','#eee','#ddd','#ccc','#bbb','#aaa','#999','#888','#777'],
       nodeStyles: {},
+      siblings: null,
+      selectedSibling: null,
     }
   }
   
@@ -70,7 +72,12 @@ class App extends Component {
       this.setState({
         showInput: true,
         lastContext,
-        inputSubmitHandler: () => { return resolve(document.getElementById('textInput').value) },
+        inputSubmitHandler: () => {
+          const inputText = document.getElementById('textInput').value
+          return !!inputText && inputText !== '' ?
+            resolve(inputText) :
+            reject('empty input')
+        },
         inputCancelHandler: () => { return reject('canceled by user') },
       })
       document.getElementById('textInput').focus()
@@ -107,6 +114,9 @@ class App extends Component {
   }
 
   componentDidMount() {
+    // --------------------
+    // INITIALIZE CYTOSCAPE
+    // --------------------
     cytoscape.use(coseBilkent)
     const cy = cytoscape({
       container: document.getElementById('cy'),
@@ -114,12 +124,100 @@ class App extends Component {
     })
     window.cy = cy
 
+    // ----------------
+    // SET UP FUNCTIONS
+    // ----------------
+    const layoutOptions = {
+      name: 'cose-bilkent',
+      ready: () => {
+        this.setState({runningLayout: true})
+      },
+      stop: () => {
+        this.setState({runningLayout: false})
+      },
+      animate: false,
+      fit: false,
+      padding: 10,
+      nodeDimensionsIncludeLabels: true,
+      randomize: false,
+    }
+
+    const setNodeStyle = (node, style) => {
+      node.style(style)
+      const nodeStyles = {
+        ...this.state.nodeStyles,
+        [node.id()]: style
+      }
+      this.setState({nodeStyles})
+    }
+
+    const toggleEdge = (a, b) => {
+      const edgeId = `#${a}${b}`
+      const edge = cy.$(edgeId)
+      if (edge.length) {
+        cy.remove(edgeId)
+      } else {
+        cy.add({ data: { id: a + b, source: a, target: b } })
+      }
+    }
+
+    const toggleEdges = (nodes, reverse) => {
+      if (nodes.length > 1) {
+        for (let i = 0; i < nodes.length - 1; i++) {
+          toggleEdge(
+            nodes[i + (reverse ? 1 : 0)].data().id,
+            nodes[i + (reverse ? 0 : 1)].data().id
+          )
+        }
+      }
+    }
+
+    const getNewNodePosition = () => {
+      const d = Math.random() * Math.min(window.innerHeight, window.innerWidth) / 4
+      const theta = Math.random() * 2 * Math.PI
+      return {
+        x: window.innerWidth / 2 + d * Math.cos(theta),
+        y: window.innerHeight / 2 + d * Math.sin(theta),
+      }
+    }
+
+    const setSiblings = n => {
+      let setNew = true
+      
+      if (this.state.siblings) {
+        let selectedSibling = this.state.siblings.indexOf(n)
+        if (selectedSibling !== -1) {
+          setNew = false
+          this.setState({
+            selectedSibling,
+          })
+        }
+      }
+
+      if (setNew) {
+        const siblings = n.incomers().outgoers('node').toArray()
+        const selectedSibling = siblings.indexOf(n) 
+        this.setState({
+          siblings,
+          selectedSibling,
+        })
+      }
+    }
+
+    // ----------------------
+    // SET UP EVENT LISTENERS
+    // ----------------------
     cy.on('select', 'node', e => {
       this.setState({
         selectedNodes: [...this.state.selectedNodes, e.target]
       })
       const n = this.state.selectedNodes.length
-      keyboardJS.setContext(n === 1 ? 'singleNode' : 'multipleNodes')
+      if (n === 1) {
+        keyboardJS.setContext('singleNode')
+        setSiblings(this.state.selectedNodes[0])
+      } else {
+        keyboardJS.setContext('multipleNodes')
+      }
     })
 
     cy.on('unselect', 'node', e => {
@@ -141,31 +239,16 @@ class App extends Component {
       e.target.unselect()
     })
 
-    const layoutOptions = {
-      name: 'cose-bilkent',
-      ready: () => {
-        this.setState({runningLayout: true})
-      },
-      stop: () => {
-        this.setState({runningLayout: false})
-      },
-      animate: false,
-      fit: false,
-      padding: 10,
-      nodeDimensionsIncludeLabels: true,
-      randomize: false,
-    }
-
+    // -------------------
+    // SET UP KEY BINDINGS
+    // -------------------
     keyboardJS.withContext('root', () => {
       keyboardJS.bind('a', null, e => {
         this.inputText()
           .then(result => {
             cy.add({
               data: { id: this.nextId(), text: result },
-              renderedPosition: {
-                x: window.innerWidth / 2,
-                y: window.innerHeight / 2,
-              },
+              renderedPosition: getNewNodePosition(),
             })
           })
           .catch(error => {
@@ -210,15 +293,6 @@ class App extends Component {
       })
     })
 
-    const setNodeStyle = (node, style) => {
-      node.style(style)
-      const nodeStyles = {
-        ...this.state.nodeStyles,
-        [node.id()]: style
-      }
-      this.setState({nodeStyles})
-    }
-
     keyboardJS.withContext('singleNode', () => {
       keyboardJS.bind('a', null, e => {
         const selectedNode = this.state.selectedNodes[0]
@@ -228,10 +302,7 @@ class App extends Component {
             const newId = this.nextId()
             cy.add([{
               data: { id: newId, text: result },
-              renderedPosition: {
-                x: window.innerWidth / 2,
-                y: window.innerHeight / 2,
-              },
+              renderedPosition: getNewNodePosition(),
             }, {
               data: { id: selectedId + newId, source: selectedId, target: newId }
             }])
@@ -254,14 +325,14 @@ class App extends Component {
       })
       keyboardJS.bind('d', e => {
         cy.collection(this.state.selectedNodes).remove()
-      })
+      }, null)
       keyboardJS.bind(']', e => {
         cy.collection(this.state.selectedNodes).outgoers('node').select()
-      })
+      }, null)
       keyboardJS.bind('[', e => {
         cy.collection(this.state.selectedNodes).incomers('node').select()
-      })
-      keyboardJS.bind('f', null, e => {
+      }, null)
+      keyboardJS.bind('f', e => {
         const selectedNode = this.state.selectedNodes[0]
         this.inputColor()
           .then(color => {
@@ -271,8 +342,8 @@ class App extends Component {
             console.log('set node color error:', error)
           })
           .finally(() => { this.hideColor() })
-      })
-      keyboardJS.bind('q', null, e => {
+      }, null)
+      keyboardJS.bind('q', e => {
         const selectedNode = this.state.selectedNodes[0]
         const successors = selectedNode.successors('node')
         if (successors.length > 0) {
@@ -288,44 +359,61 @@ class App extends Component {
           }
           cy.endBatch()
         }
-      })
+      }, null)
+      keyboardJS.bind('h', e => {
+        let numSiblings = this.state.siblings.length
+        if (numSiblings > 1) {
+          let prevSibling = this.state.selectedSibling > 0 ?
+            this.state.selectedSibling - 1 :
+            numSiblings - 1
+          this.state.siblings[this.state.selectedSibling].unselect()
+          this.state.siblings[prevSibling].select()
+        }
+      }, null)
+      keyboardJS.bind('j', e => {
+        const selectedNode = this.state.selectedNodes[0]
+        const parents = selectedNode.incomers('node')
+        if (parents.length) {
+          selectedNode.unselect()
+          parents[0].select()
+        }
+      }, null)
+      keyboardJS.bind('k', e => {
+        const selectedNode = this.state.selectedNodes[0]
+        const children = selectedNode.outgoers('node')
+        if (children.length) {
+          selectedNode.unselect()
+          children[0].select()
+        }
+      }, null)
+      keyboardJS.bind('l', e => {
+        let numSiblings = this.state.siblings.length
+        if (numSiblings > 1) {
+          let nextSibling = this.state.selectedSibling < numSiblings - 1 ?
+            this.state.selectedSibling + 1 :
+            0
+          this.state.siblings[this.state.selectedSibling].unselect()
+          this.state.siblings[nextSibling].select()
+        }
+      }, null)
     })
 
     keyboardJS.withContext('multipleNodes', () => {
-      const toggleEdge = (a, b) => {
-        const edgeId = `#${a}${b}`
-        const edge = cy.$(edgeId)
-        if (edge.length) {
-          cy.remove(edgeId)
-        } else {
-          cy.add({ data: { id: a + b, source: a, target: b } })
-        }
-      }
-      const toggleEdges = (nodes, reverse) => {
-        if (nodes.length > 1) {
-          for (let i = 0; i < nodes.length - 1; i++) {
-            toggleEdge(
-              nodes[i + (reverse ? 1 : 0)].data().id,
-              nodes[i + (reverse ? 0 : 1)].data().id
-            )
-          }
-        }
-      }
       keyboardJS.bind('c', e => {
         toggleEdges(this.state.selectedNodes)
-      })
+      }, null)
       keyboardJS.bind('shift + c', e => {
         toggleEdges(this.state.selectedNodes, true)
-      })
+      }, null)
       keyboardJS.bind('d', e => {
         cy.collection(this.state.selectedNodes).remove()
-      })
+      }, null)
       keyboardJS.bind(']', e => {
         cy.collection(this.state.selectedNodes).outgoers('node').select()
-      })
+      }, null)
       keyboardJS.bind('[', e => {
         cy.collection(this.state.selectedNodes).incomers('node').select()
-      })
+      }, null)
       keyboardJS.bind('f', null, e => {
         this.inputColor()
           .then(color => {
@@ -338,31 +426,31 @@ class App extends Component {
             console.log('set node color canceled: ', error)
           })
           .finally(() => { this.hideColor() })
-      })
-      keyboardJS.bind('x', null, e => {
+      }, null)
+      keyboardJS.bind('x', e => {
         if (!this.state.runningLayout) {
           const others = cy.nodes().difference(':selected')
           others.lock()
           cy.layout(layoutOptions).run()
           others.unlock()
         }
-      })
+      }, null)
     })
 
     keyboardJS.withContext('textInput', () => {
-      keyboardJS.bind('enter', e => {
+      keyboardJS.bind('enter', null, e => {
         this.state.inputSubmitHandler()
       })
-      keyboardJS.bind(['escape', 'ctrl + ['], e => {
+      keyboardJS.bind(['escape', 'ctrl + ['], null, e => {
         this.state.inputCancelHandler()
       })
     })
 
     keyboardJS.withContext('colorInput', () => {
-      keyboardJS.bind('enter', e => {
+      keyboardJS.bind('enter', null, e => {
         this.state.inputSubmitHandler()
       })
-      keyboardJS.bind(['escape', 'ctrl + ['], e => {
+      keyboardJS.bind(['escape', 'ctrl + ['], null, e => {
         this.state.inputCancelHandler()
       })
 
@@ -411,33 +499,12 @@ class App extends Component {
         <div id="cy">
         </div>
         { this.state.showInput &&
-          <div style={{
-              position: 'absolute',
-              width: '100%',
-              height: '100%',
-              background: 'rgba(0,0,0,0.7)',
-              display: 'flex',
-          }}>
-            <input id="textInput" style={{
-              width: '100%',
-              flex: 1,
-              background: 'transparent',
-              textAlign: 'center',
-              color: 'white',
-              fontSize: '3em',
-            }} />
+          <div className="inputOverlay">
+            <input id="textInput" />
           </div>
         }
         { this.state.showColorPicker &&
-          <div style={{
-            position: 'absolute',
-            width: '100%',
-            height: '100%',
-            background: 'rgba(0,0,0,0.7)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
+          <div className="inputOverlay">
             <SketchPicker
               color={this.state.selectedColor}
               onChangeComplete={color => { this.setState({selectedColor: color.hex}) }}
