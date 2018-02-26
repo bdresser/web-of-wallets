@@ -1,6 +1,7 @@
 import React, { Component } from 'react'
 import cytoscape from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
+import popper from 'cytoscape-popper'
 import keyboardJS from 'keyboardjs'
 import uniqid from 'uniqid'
 import { SketchPicker } from 'react-color'
@@ -10,8 +11,9 @@ const cyStyle = [
   {
     selector: 'node',
     style: {
+      'display': 'data(display)',
       'content': 'data(text)',
-      'background-color': 'grey',
+      'background-color': 'data(color)',
       'text-margin-y': 0,
       'text-valign': 'center',
       'text-halign': 'center',
@@ -31,7 +33,6 @@ const cyStyle = [
       'border-width': '.3em',
       'border-style': 'solid',
       'border-color': 'white',
-      'line-color': 'white',
     }
   },
   {
@@ -40,6 +41,18 @@ const cyStyle = [
       'mid-target-arrow-shape': 'triangle',
       'arrow-scale': 1.5,
     }
+  },
+  {
+    selector: '.fade',
+    style: {
+      'background-color': 'grey'
+    }
+  },
+  {
+    selector: 'node.link',
+    style: {
+      'shape': 'cutrectangle',
+    }
   }
 ]
 
@@ -47,19 +60,18 @@ class App extends Component {
   constructor(props) {
     super(props)
     this.state = {
-      selectedNodes: [],
       siblings: null,
-      selectedSibling: null,
+      selectedNodes: [],
       collapsedNodes: [],
+      selectedSibling: null,
 
+      showInput: false,
       lastContext: null,
+      selectedColor: '#fff',
+      showColorPicker: false,
       inputSubmitHandler: null,
       inputCancelHandler: null,
-      showInput: false,
-      showColorPicker: false,
-      selectedColor: '#fff',
 
-      nodeStyles: {},
       presetColors: ['#fff','#eee','#ddd','#ccc','#bbb','#aaa','#999','#888','#777'],
 
       runningLayout: false,
@@ -123,6 +135,7 @@ class App extends Component {
     // INITIALIZE CYTOSCAPE
     // --------------------
     cytoscape.use(coseBilkent)
+    cytoscape.use(popper)
     const cy = cytoscape({
       container: document.getElementById('cy'),
       style: cyStyle
@@ -134,26 +147,13 @@ class App extends Component {
     // ----------------
     const layoutOptions = {
       name: 'cose-bilkent',
-      ready: () => {
-        this.setState({runningLayout: true})
-      },
-      stop: () => {
-        this.setState({runningLayout: false})
-      },
-      animate: false,
+      ready: () => { this.setState({runningLayout: true}) },
+      stop: () => { this.setState({runningLayout: false}) },
+      animate: true,
       fit: false,
-      padding: 10,
       nodeDimensionsIncludeLabels: true,
       randomize: false,
-    }
-
-    const setNodeStyle = (node, style) => {
-      node.style(style)
-      const nodeStyles = {
-        ...this.state.nodeStyles,
-        [node.id()]: style
-      }
-      this.setState({nodeStyles})
+      idealEdgeLength: 100,
     }
 
     const toggleEdge = (a, b) => {
@@ -186,6 +186,12 @@ class App extends Component {
       }
     }
 
+    const getNewNodeColor = () => {
+      return this.state.selectedNodes.length > 0 ?
+        this.state.selectedNodes[0].data('color') :
+        'grey'
+    }
+
     const setSiblings = n => {
       let setNew = true
       
@@ -212,22 +218,22 @@ class App extends Component {
     const collapseNodes = (nodes, numChildren) => {
       nodes
         .data('collapsedChildren', numChildren)
-        .style({'content': n => `${n.data('text')} (+${numChildren})`})
+        .style({'content': n => (`${n.data('text')} (+${numChildren})`)})
     }
 
     const uncollapseNodes = nodes => {
       nodes
         .data('collapsedChildren', null)
-        .style({'content': n => n.data('text')})
+        .removeStyle('content label')
     }
 
     const removeSelectedNodes = () => {
-      const selectedCollapsedNodes = this.state.collapsedNodes
-        .intersection(this.state.selectedNodes)
+      const selectedCollapsedNodes = cy.collection(this.state.selectedNodes)
+        .intersection(this.state.collapsedNodes)
       cy.startBatch()
       selectedCollapsedNodes.forEach(n => {
         uncollapseNodes(n)
-        n.successors('node').style({'display': 'element'})
+        n.successors('node').data('display', 'element')
       })
       cy.endBatch()
       this.setState({
@@ -235,6 +241,43 @@ class App extends Component {
           .difference(selectedCollapsedNodes)
       })
       cy.collection(this.state.selectedNodes).remove()
+    }
+
+    const showPopper = n => {
+      const pop = n.popper({
+        content: () => {
+          const div = document.createElement('div')
+          div.className = 'urlPopper'
+          const a = document.createElement('a')
+          a.href = n.data('url')
+          a.target = '_blank'
+          a.innerHTML = n.data('url')
+          div.appendChild(a)
+          document.body.appendChild(div)
+          return div
+        },
+        popper: {
+          removeOnDestroy: true,
+          placement: 'bottom',
+          popper: {
+            modifiers: {
+              offset: { offset: '100, 100', enabled: true }
+            }
+          }
+        }
+      })
+      n.data('popper', pop)
+      let update = () => { pop.scheduleUpdate() }
+      cy.on('pan zoom resize', update)
+      n.on('position', update)
+    }
+
+    const hidePopper = n => {
+      const pop = n.data('popper')
+      if (pop) {
+        pop.destroy()
+        n.data('popper', null)
+      }
     }
 
     // ----------------------
@@ -251,6 +294,10 @@ class App extends Component {
       } else {
         keyboardJS.setContext('multipleNodes')
       }
+
+      if (e.target.data('url')) {
+        showPopper(e.target)
+      }
     })
 
     cy.on('unselect', 'node', e => {
@@ -266,6 +313,8 @@ class App extends Component {
 
       if (n === 1) keyboardJS.setContext('singleNode')
       else if (n === 0) keyboardJS.setContext('root')
+
+      hidePopper(e.target)
     })
 
     cy.on('remove', 'node', e => {
@@ -280,7 +329,7 @@ class App extends Component {
         this.inputText()
           .then(result => {
             cy.add({
-              data: { id: this.nextId(), text: result },
+              data: { id: this.nextId(), text: result, color: getNewNodeColor(), display: 'element' },
               renderedPosition: getNewNodePosition(),
             })
           })
@@ -293,14 +342,12 @@ class App extends Component {
         const json = cy.json()
         window.localStorage.setItem('mindmap', JSON.stringify(json))
         window.localStorage.setItem('presetColors', JSON.stringify(this.state.presetColors))
-        window.localStorage.setItem('nodeStyles', JSON.stringify(this.state.nodeStyles))
         window.localStorage.setItem('collapsedNodes', JSON.stringify(
           this.state.collapsedNodes.toArray().map(n => (`#${n.id()}`))
         ))
         console.group('save graph')
         console.log(json)
         console.log(this.state.presetColors)
-        console.log(this.state.nodeStyles)
         console.log(this.state.collapsedNodes)
         console.groupEnd()
       })
@@ -308,31 +355,24 @@ class App extends Component {
         const json = JSON.parse(window.localStorage.getItem('mindmap'))
         cy.json(json)
         const presetColors = JSON.parse(window.localStorage.getItem('presetColors'))
-        const nodeStyles = JSON.parse(window.localStorage.getItem('nodeStyles'))
         const collapsedNodeIds = JSON.parse(window.localStorage.getItem('collapsedNodes'))
-        const collapsedNodes = collapsedNodeIds ? cy.$(collapsedNodeIds.join(',')) : cy.collection()
+        const collapsedNodes = collapsedNodeIds.length > 0 ? cy.$(collapsedNodeIds.join(',')) : cy.collection()
 
         cy.startBatch()
-        for (let id in nodeStyles) {
-          cy.$(`#${id}`).style(nodeStyles[id])
-        }
-        cy.$('node[display="none"]').style({'display': 'element'})
         collapsedNodes.forEach(n => {
           const successors = n.successors('node')
+          successors.data('display', 'none')
           collapseNodes(n, successors.length)
-          successors.style({'display': 'none'})
         })
         cy.endBatch()
 
         this.setState({
           presetColors,
-          nodeStyles,
           collapsedNodes,
         })
         console.group('load graph')
         console.log(json)
         console.log(presetColors)
-        console.log(nodeStyles)
         console.log(collapsedNodes)
         console.groupEnd()
       })
@@ -362,7 +402,7 @@ class App extends Component {
             const selectedId = selectedNode.id()
             const newId = this.nextId()
             cy.add([{
-              data: { id: newId, text: result },
+              data: { id: newId, text: result, color: getNewNodeColor(), display: 'element' },
               renderedPosition: getNewNodePosition(),
             }, {
               data: { id: selectedId + newId, source: selectedId, target: newId }
@@ -397,7 +437,7 @@ class App extends Component {
         const selectedNode = this.state.selectedNodes[0]
         this.inputColor()
           .then(color => {
-            setNodeStyle(selectedNode, { 'background-color': color })
+            selectedNode.data('color', color)
           })
           .catch(error => {
             console.log('set node color error:', error)
@@ -405,25 +445,21 @@ class App extends Component {
           .finally(() => { this.hideColor() })
       }, null)
       keyboardJS.bind('q', e => {
-        // toggle collapse children
         const selectedNode = this.state.selectedNodes[0]
         const successors = selectedNode.successors('node')
         if (successors.length > 0) {
           cy.startBatch()
           if (selectedNode.data('collapsedChildren')) {
-            // expand children
             uncollapseNodes(selectedNode)
-            successors.style({'display': 'element'})
+            successors.data('display', 'element')
             this.setState({
               collapsedNodes: this.state.collapsedNodes.difference(selectedNode)
             })
           } else {
-            // expand any collapsed successors
             const collapsedSuccessors = successors.intersection(this.state.collapsedNodes)
             uncollapseNodes(collapsedSuccessors)
-            // collapse children
             collapseNodes(selectedNode, successors.length)
-            successors.style({'display': 'none'})
+            successors.data('display', 'none')
             this.setState({
               collapsedNodes: this.state.collapsedNodes.difference(collapsedSuccessors).union(selectedNode)
             })
@@ -467,6 +503,29 @@ class App extends Component {
           this.state.siblings[nextSibling].select()
         }
       }, null)
+      keyboardJS.bind('shift + g', null, e => {
+        const selectedNode = this.state.selectedNodes[0]
+        this.inputText()
+          .then(result => {
+            hidePopper(selectedNode)
+            selectedNode.data('url', result)
+            selectedNode.addClass('link')
+            showPopper(selectedNode)
+          })
+          .catch(error => {
+            selectedNode.data('url', null)
+            selectedNode.removeClass('link')
+            hidePopper(selectedNode)
+          })
+          .finally(() => this.hideInput())
+      })
+      keyboardJS.bind('g', null, e => {
+        const selectedNode = this.state.selectedNodes[0]
+        const selectedUrl = selectedNode.data('url')
+        if (selectedUrl) {
+          window.open(selectedUrl, '_blank')
+        }
+      })
     })
 
     keyboardJS.withContext('multipleNodes', () => {
@@ -488,9 +547,8 @@ class App extends Component {
       keyboardJS.bind('f', null, e => {
         this.inputColor()
           .then(color => {
-            const style = { 'background-color': color }
             this.state.selectedNodes.forEach(node => {
-              setNodeStyle(node, style)
+              node.data('color', color)
             })
           })
           .catch(error => {

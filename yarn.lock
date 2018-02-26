@@ -1723,6 +1723,12 @@ cytoscape-cose-bilkent@^4.0.0:
   version "4.0.0"
   resolved "https://registry.yarnpkg.com/cytoscape-cose-bilkent/-/cytoscape-cose-bilkent-4.0.0.tgz#5f0afbe5c55a7a026442b756ca388ce77c262967"
 
+cytoscape-popper@^1.0.1:
+  version "1.0.1"
+  resolved "https://registry.yarnpkg.com/cytoscape-popper/-/cytoscape-popper-1.0.1.tgz#09fd147ab0b4d2749aec8d5d5214173c4ec3810d"
+  dependencies:
+    popper.js "^1.0.0"
+
 cytoscape@^3.2.9:
   version "3.2.9"
   resolved "https://registry.yarnpkg.com/cytoscape/-/cytoscape-3.2.9.tgz#383fa975b04e0c05926ff27fa58550ddf0681494"
@@ -4655,6 +4661,10 @@ pkg-dir@^2.0.0:
 pluralize@^7.0.0:
   version "7.0.0"
   resolved "https://registry.yarnpkg.com/pluralize/-/pluralize-7.0.0.tgz#298b89df8b93b0221dbf421ad2b1b1ea23fc6777"
+
+popper.js@^1.0.0:
+  version "1.12.9"
+  resolved "https://registry.yarnpkg.com/popper.js/-/popper.js-1.12.9.tgz#0dfbc2dff96c451bb332edcfcfaaf566d331d5b3"
 
 portfinder@^1.0.9:
   version "1.0.13"
