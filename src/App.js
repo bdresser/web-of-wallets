@@ -43,18 +43,23 @@ const cyStyle = [
     }
   },
   {
-    selector: '.fade',
-    style: {
-      'background-color': 'grey'
-    }
-  },
-  {
     selector: 'node.link',
     style: {
       'shape': 'cutrectangle',
     }
-  }
+  },
+  {
+    selector: '.fade',
+    style: {
+      'opacity': 0.2,
+    }
+  },
 ]
+
+const newNodeDefaults = {
+  display: 'element',
+  tags: [],
+}
 
 class App extends Component {
   constructor(props) {
@@ -64,6 +69,7 @@ class App extends Component {
       selectedNodes: [],
       collapsedNodes: [],
       selectedSibling: null,
+      tags: {},
 
       showInput: false,
       lastContext: null,
@@ -149,7 +155,8 @@ class App extends Component {
       name: 'cose-bilkent',
       ready: () => { this.setState({runningLayout: true}) },
       stop: () => { this.setState({runningLayout: false}) },
-      animate: true,
+      // settings animate: true breaks layout for selected subset
+      animate: false,
       fit: false,
       nodeDimensionsIncludeLabels: true,
       randomize: false,
@@ -166,7 +173,8 @@ class App extends Component {
       }
     }
 
-    const toggleEdges = (nodes, reverse) => {
+    const toggleEdges = (reverse) => {
+      const nodes = this.state.selectedNodes
       if (nodes.length > 1) {
         for (let i = 0; i < nodes.length - 1; i++) {
           toggleEdge(
@@ -329,7 +337,7 @@ class App extends Component {
         this.inputText()
           .then(result => {
             cy.add({
-              data: { id: this.nextId(), text: result, color: getNewNodeColor(), display: 'element' },
+              data: { id: this.nextId(), text: result, color: getNewNodeColor(), ...newNodeDefaults },
               renderedPosition: getNewNodePosition(),
             })
           })
@@ -345,10 +353,19 @@ class App extends Component {
         window.localStorage.setItem('collapsedNodes', JSON.stringify(
           this.state.collapsedNodes.toArray().map(n => (`#${n.id()}`))
         ))
+        const tags = {}
+        for (const tag in this.state.tags) {
+          const tagCollection = this.state.tags[tag]
+          if (tagCollection && tagCollection.length > 0) {
+            tags[tag] = tagCollection.toArray().map(n => (`#${n.id()}`))
+          }
+        }
+        window.localStorage.setItem('tags', JSON.stringify(tags))
         console.group('save graph')
-        console.log(json)
-        console.log(this.state.presetColors)
-        console.log(this.state.collapsedNodes)
+        console.log('json', json)
+        console.log('presetColors', this.state.presetColors)
+        console.log('collapsedNodes', this.state.collapsedNodes)
+        console.log('tags', this.state.tags)
         console.groupEnd()
       })
       keyboardJS.bind('l', e => {
@@ -357,6 +374,11 @@ class App extends Component {
         const presetColors = JSON.parse(window.localStorage.getItem('presetColors'))
         const collapsedNodeIds = JSON.parse(window.localStorage.getItem('collapsedNodes'))
         const collapsedNodes = collapsedNodeIds.length > 0 ? cy.$(collapsedNodeIds.join(',')) : cy.collection()
+        const tagsToIds = JSON.parse(window.localStorage.getItem('tags'))
+        const tags = {}
+        for (const tag in tagsToIds) {
+          tags[tag] = cy.$(tagsToIds[tag].join(','))
+        }
 
         cy.startBatch()
         collapsedNodes.forEach(n => {
@@ -369,11 +391,13 @@ class App extends Component {
         this.setState({
           presetColors,
           collapsedNodes,
+          tags,
         })
         console.group('load graph')
-        console.log(json)
-        console.log(presetColors)
-        console.log(collapsedNodes)
+        console.log('json', json)
+        console.log('presetColors', presetColors)
+        console.log('collapsedNodes', collapsedNodes)
+        console.log('tags', tags)
         console.groupEnd()
       })
       keyboardJS.bind('x', null, e => {
@@ -385,13 +409,47 @@ class App extends Component {
         cy.startBatch()
         this.state.collapsedNodes.forEach(n => {
           uncollapseNodes(n)
-          n.successors('node').style({'display': 'element'})
+          n.successors('node').data('display', 'element')
         })
         cy.endBatch()
         this.setState({
           collapsedNodes: cy.collection()
         })
       }, null)
+      keyboardJS.bind('t', null, e => {
+        console.log(Object.keys(this.state.tags))
+        cy.startBatch()
+        cy.$('.fade').removeClass('fade')
+        this.inputText()
+          .then(result => {
+            const taggedNodes = this.state.tags[result]
+            if (taggedNodes && taggedNodes.length > 0) {
+              cy.$().difference(taggedNodes).addClass('fade')
+            }
+          })
+          .catch(error => {
+            console.log('cancel filter nodes by tag: ', error)
+          })
+          .finally(() => {
+            this.hideInput()
+            cy.endBatch()
+          })
+      })
+      keyboardJS.bind('shift + t', null, e => {
+        console.log(Object.keys(this.state.tags))
+        this.inputText()
+          .then(result => {
+            this.hideInput()
+            const taggedNodes = this.state.tags[result]
+            if (taggedNodes && taggedNodes.length > 0) {
+              taggedNodes.select()
+            }
+          })
+          .catch(error => {
+            console.log('select nodes by tag error: ', error)
+            this.hideInput()
+          })
+      })
     })
 
     keyboardJS.withContext('singleNode', () => {
@@ -402,7 +460,7 @@ class App extends Component {
             const selectedId = selectedNode.id()
             const newId = this.nextId()
             cy.add([{
-              data: { id: newId, text: result, color: getNewNodeColor(), display: 'element' },
+              data: { id: newId, text: result, color: getNewNodeColor(), ...newNodeDefaults },
               renderedPosition: getNewNodePosition(),
             }, {
               data: { id: selectedId + newId, source: selectedId, target: newId }
@@ -526,14 +584,54 @@ class App extends Component {
           window.open(selectedUrl, '_blank')
         }
       })
+      keyboardJS.bind('t', null, e => {
+        const selectedNode = this.state.selectedNodes[0]
+        console.log(selectedNode.data('tags'))
+        this.inputText()
+          .then(result => {
+            const tags = selectedNode.data('tags')
+            const i = tags.indexOf(result)
+            const tagCollection = this.state.tags[result]
+            if (i === -1) {
+              selectedNode.data('tags', [...tags, result])
+              if (tagCollection === undefined) {
+                this.setState({
+                  tags: {
+                    ...this.state.tags,
+                    [result]: cy.collection(selectedNode)
+                  }
+                })
+              } else {
+                this.setState({
+                  tags: {
+                    ...this.state.tags,
+                    [result]: tagCollection.union(selectedNode)
+                  }
+                })
+              }
+            } else {
+              selectedNode.data('tags', [...tags.slice(0, i), ...tags.slice(i + 1)])
+              this.setState({
+                tags: {
+                  ...this.state.tags,
+                  [result]: tagCollection.difference(selectedNode)
+                }
+              })
+            }
+          })
+          .catch(error => {
+            console.log('set node tag error:', error)
+          })
+          .finally(() => {this.hideInput() })
+      })
     })
 
     keyboardJS.withContext('multipleNodes', () => {
       keyboardJS.bind('c', e => {
-        toggleEdges(this.state.selectedNodes)
+        toggleEdges()
       }, null)
       keyboardJS.bind('shift + c', e => {
-        toggleEdges(this.state.selectedNodes, true)
+        toggleEdges(true)
       }, null)
       keyboardJS.bind('d', e => {
         removeSelectedNodes()
