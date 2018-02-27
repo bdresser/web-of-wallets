@@ -56,10 +56,12 @@ const cyStyle = [
   },
 ]
 
-const newNodeDefaults = {
+const defaultNodeData = {
   display: 'element',
   tags: [],
 }
+
+const defaultNodeColor = 'grey'
 
 class App extends Component {
   constructor(props) {
@@ -70,6 +72,7 @@ class App extends Component {
       collapsedNodes: [],
       selectedSibling: null,
       tags: {},
+      focusedTag: null,
 
       showInput: false,
       lastContext: null,
@@ -77,8 +80,9 @@ class App extends Component {
       showColorPicker: false,
       inputSubmitHandler: null,
       inputCancelHandler: null,
+      showTags: true,
 
-      presetColors: ['#fff','#eee','#ddd','#ccc','#bbb','#aaa','#999','#888','#777'],
+      presetColors: ['#fff','#eee','#ddd','#ccc','#bbb','#aaa','#999','#888','#777','#000'],
 
       runningLayout: false,
     }
@@ -194,12 +198,6 @@ class App extends Component {
       }
     }
 
-    const getNewNodeColor = () => {
-      return this.state.selectedNodes.length > 0 ?
-        this.state.selectedNodes[0].data('color') :
-        'grey'
-    }
-
     const setSiblings = n => {
       let setNew = true
       
@@ -288,12 +286,143 @@ class App extends Component {
       }
     }
 
+    const getTagAndToggle = () => {
+      cy.startBatch()
+      const focusedTag = this.state.focusedTag
+      if (focusedTag) {
+        console.log('toggle focused tag:', focusedTag)
+        toggleTag(focusedTag, true)
+        cy.endBatch()
+      } else {
+        this.inputText()
+          .then(tag => { toggleTag(tag) })
+          .catch(error => { console.log('toggle tag error:', error) })
+          .finally(() => {
+            this.hideInput()
+            cy.endBatch()
+          })
+      }
+    }
+
+    const toggleTag = (tag, isFocused) => {
+      this.state.selectedNodes.forEach(n => {
+        const tags = n.data('tags')
+        // console.log('tags: ', tags)
+        const tagIndex = tags.indexOf(tag)
+        const shouldAddTag = tagIndex === -1
+        n.data('tags', shouldAddTag ?
+          [...tags, tag] :
+          [...tags.slice(0, tagIndex), ...tags.slice(tagIndex + 1)]
+        )
+
+        const taggedNodes = this.state.tags[tag] || cy.collection()
+        this.setState({
+          tags: {
+            ...this.state.tags,
+            [tag]: shouldAddTag ?
+              taggedNodes.union(n) :
+              taggedNodes.difference(n)
+          }
+        })
+
+        if (isFocused) n.toggleClass('fade', !shouldAddTag)
+      })
+    }
+
+    const focusTag = () => {
+      cy.startBatch()
+      cy.$('.fade').removeClass('fade')
+      this.inputText()
+        .then(tag => {
+          const taggedNodes = this.state.tags[tag] || cy.collection()
+          cy.$().difference(taggedNodes).addClass('fade')
+          this.setState({ focusedTag: tag.length > 0 ? tag : null })
+        })
+        .catch(error => {
+          this.setState({ focusedTag: null })
+          console.log('focus tag error: ', error)
+        })
+        .finally(() => {
+          this.hideInput()
+          cy.endBatch()
+        })
+    }
+
+    this.toggleFocusTag = tag => {
+      cy.startBatch()
+      cy.$('.fade').removeClass('fade')
+      const isFocused = this.state.focusedTag === tag
+      if (!isFocused) {
+        const taggedNodes = this.state.tags[tag] || cy.collection()
+        cy.$().difference(taggedNodes).addClass('fade')
+      }
+      this.setState({ focusedTag: isFocused ? null : tag })
+      cy.endBatch()
+    }
+
+    this.selectTag = tag => {
+      const taggedNodes = this.state.tags[tag]
+      if (taggedNodes && taggedNodes.length > 0) {
+        taggedNodes.select()
+      }
+    }
+
+    const selectTaggedNodes = () => {
+      this.inputText()
+        .then(tag => {
+          this.hideInput()
+          this.selectTag(tag)
+        })
+        .catch(error => {
+          console.log('select nodes by tag error: ', error)
+          this.hideInput()
+        })
+    }
+
+    const getNewNode = (id, text, color) => {
+      return {
+        data: { ...defaultNodeData, text, id, color },
+        renderedPosition: getNewNodePosition()
+      }
+    }
+
+    const getNewEdge = (sourceId, targetId) => {
+      return { data: { id: sourceId + targetId, source: sourceId, target: targetId }}
+    }
+
+    const addNode = () => {
+      this.inputText()
+        .then(text => {
+          const newNode = cy.add(getNewNode(this.nextId(), text, defaultNodeColor))
+          if (this.state.focusedTag) newNode.addClass('fade')
+        })
+        .catch(error => { console.log('add child node error: ', error) })
+        .finally(() => { this.hideInput() })
+    }
+
+    const addChildNode = () => {
+      const selectedNode = this.state.selectedNodes[0]
+      this.inputText()
+        .then(text => {
+          const sourceId = selectedNode.id()
+          const targetId = this.nextId()
+          const newEles = cy.add([
+            getNewNode(targetId, text, selectedNode.data('color')),
+            getNewEdge(sourceId, targetId)
+          ])
+          if (this.state.focusedTag) newEles.addClass('fade')
+        })
+        .catch(error => { console.log('add child node error: ', error) })
+        .finally(() => { this.hideInput() })
+    }
+
     // ----------------------
     // SET UP EVENT LISTENERS
     // ----------------------
     cy.on('select', 'node', e => {
       this.setState({
-        selectedNodes: [...this.state.selectedNodes, e.target]
+        // selectedNodes: [...this.state.selectedNodes, e.target]
+        selectedNodes: cy.$(':selected').toArray()
       })
       const n = this.state.selectedNodes.length
       if (n === 1) {
@@ -333,19 +462,7 @@ class App extends Component {
     // SET UP KEY BINDINGS
     // -------------------
     keyboardJS.withContext('root', () => {
-      keyboardJS.bind('a', null, e => {
-        this.inputText()
-          .then(result => {
-            cy.add({
-              data: { id: this.nextId(), text: result, color: getNewNodeColor(), ...newNodeDefaults },
-              renderedPosition: getNewNodePosition(),
-            })
-          })
-          .catch(error => {
-            console.log('add node canceled: ', error)
-          })
-          .finally(() => {this.hideInput()})
-      })
+      keyboardJS.bind('a', null, addNode)
       keyboardJS.bind('s', e => {
         const json = cy.json()
         window.localStorage.setItem('mindmap', JSON.stringify(json))
@@ -361,14 +478,18 @@ class App extends Component {
           }
         }
         window.localStorage.setItem('tags', JSON.stringify(tags))
+        window.localStorage.setItem('focusedTag', JSON.stringify(this.state.focusedTag))
         console.group('save graph')
         console.log('json', json)
         console.log('presetColors', this.state.presetColors)
         console.log('collapsedNodes', this.state.collapsedNodes)
         console.log('tags', this.state.tags)
+        console.log('focusedTag', this.state.focusedTag)
         console.groupEnd()
       })
       keyboardJS.bind('l', e => {
+        cy.startBatch()
+        uncollapseNodes(this.state.collapsedNodes)
         const json = JSON.parse(window.localStorage.getItem('mindmap'))
         cy.json(json)
         const presetColors = JSON.parse(window.localStorage.getItem('presetColors'))
@@ -379,8 +500,8 @@ class App extends Component {
         for (const tag in tagsToIds) {
           tags[tag] = cy.$(tagsToIds[tag].join(','))
         }
+        const focusedTag = JSON.parse(window.localStorage.getItem('focusedTag'))
 
-        cy.startBatch()
         collapsedNodes.forEach(n => {
           const successors = n.successors('node')
           successors.data('display', 'none')
@@ -392,12 +513,14 @@ class App extends Component {
           presetColors,
           collapsedNodes,
           tags,
+          focusedTag,
         })
         console.group('load graph')
         console.log('json', json)
         console.log('presetColors', presetColors)
         console.log('collapsedNodes', collapsedNodes)
         console.log('tags', tags)
+        console.log('focusedTag', focusedTag)
         console.groupEnd()
       })
       keyboardJS.bind('x', null, e => {
@@ -416,61 +539,12 @@ class App extends Component {
           collapsedNodes: cy.collection()
         })
       }, null)
-      keyboardJS.bind('t', null, e => {
-        console.log(Object.keys(this.state.tags))
-        cy.startBatch()
-        cy.$('.fade').removeClass('fade')
-        this.inputText()
-          .then(result => {
-            const taggedNodes = this.state.tags[result]
-            if (taggedNodes && taggedNodes.length > 0) {
-              cy.$().difference(taggedNodes).addClass('fade')
-            }
-          })
-          .catch(error => {
-            console.log('cancel filter nodes by tag: ', error)
-          })
-          .finally(() => {
-            this.hideInput()
-            cy.endBatch()
-          })
-      })
-      keyboardJS.bind('shift + t', null, e => {
-        console.log(Object.keys(this.state.tags))
-        this.inputText()
-          .then(result => {
-            this.hideInput()
-            const taggedNodes = this.state.tags[result]
-            if (taggedNodes && taggedNodes.length > 0) {
-              taggedNodes.select()
-            }
-          })
-          .catch(error => {
-            console.log('select nodes by tag error: ', error)
-            this.hideInput()
-          })
-      })
+      keyboardJS.bind('t', null, focusTag)
+      keyboardJS.bind('shift + t', null, selectTaggedNodes)
     })
 
     keyboardJS.withContext('singleNode', () => {
-      keyboardJS.bind('a', null, e => {
-        const selectedNode = this.state.selectedNodes[0]
-        this.inputText()
-          .then(result => {
-            const selectedId = selectedNode.id()
-            const newId = this.nextId()
-            cy.add([{
-              data: { id: newId, text: result, color: getNewNodeColor(), ...newNodeDefaults },
-              renderedPosition: getNewNodePosition(),
-            }, {
-              data: { id: selectedId + newId, source: selectedId, target: newId }
-            }])
-          })
-          .catch(error => {
-            console.log('add child node canceled: ', error)
-          })
-          .finally(() => {this.hideInput()})
-      })
+      keyboardJS.bind('a', null, addChildNode)
       keyboardJS.bind('e', null, e => {
         const selectedNode = this.state.selectedNodes[0]
         this.inputText()
@@ -493,6 +567,9 @@ class App extends Component {
       }, null)
       keyboardJS.bind('f', e => {
         const selectedNode = this.state.selectedNodes[0]
+        this.setState({
+          selectedColor: selectedNode.data('color')
+        })
         this.inputColor()
           .then(color => {
             selectedNode.data('color', color)
@@ -584,46 +661,7 @@ class App extends Component {
           window.open(selectedUrl, '_blank')
         }
       })
-      keyboardJS.bind('t', null, e => {
-        const selectedNode = this.state.selectedNodes[0]
-        console.log(selectedNode.data('tags'))
-        this.inputText()
-          .then(result => {
-            const tags = selectedNode.data('tags')
-            const i = tags.indexOf(result)
-            const tagCollection = this.state.tags[result]
-            if (i === -1) {
-              selectedNode.data('tags', [...tags, result])
-              if (tagCollection === undefined) {
-                this.setState({
-                  tags: {
-                    ...this.state.tags,
-                    [result]: cy.collection(selectedNode)
-                  }
-                })
-              } else {
-                this.setState({
-                  tags: {
-                    ...this.state.tags,
-                    [result]: tagCollection.union(selectedNode)
-                  }
-                })
-              }
-            } else {
-              selectedNode.data('tags', [...tags.slice(0, i), ...tags.slice(i + 1)])
-              this.setState({
-                tags: {
-                  ...this.state.tags,
-                  [result]: tagCollection.difference(selectedNode)
-                }
-              })
-            }
-          })
-          .catch(error => {
-            console.log('set node tag error:', error)
-          })
-          .finally(() => {this.hideInput() })
-      })
+      keyboardJS.bind('t', null, getTagAndToggle)
     })
 
     keyboardJS.withContext('multipleNodes', () => {
@@ -662,6 +700,7 @@ class App extends Component {
           others.unlock()
         }
       }, null)
+      keyboardJS.bind('t', null, getTagAndToggle)
     })
 
     keyboardJS.withContext('textInput', () => {
@@ -681,7 +720,7 @@ class App extends Component {
         this.state.inputCancelHandler()
       })
 
-      const setColor = i => {
+      const setColor = i => () => {
         this.setState({
           presetColors: [
             ...this.state.presetColors.slice(0, i),
@@ -690,34 +729,36 @@ class App extends Component {
           ]
         })
       }
-      keyboardJS.bind('ctrl + 1', e => { setColor(0) })
-      keyboardJS.bind('ctrl + 2', e => { setColor(1) })
-      keyboardJS.bind('ctrl + 3', e => { setColor(2) })
-      keyboardJS.bind('ctrl + 4', e => { setColor(3) })
-      keyboardJS.bind('ctrl + 5', e => { setColor(4) })
-      keyboardJS.bind('ctrl + 6', e => { setColor(5) })
-      keyboardJS.bind('ctrl + 7', e => { setColor(6) })
-      keyboardJS.bind('ctrl + 8', e => { setColor(7) })
-      keyboardJS.bind('ctrl + 9', e => { setColor(8) })
-      keyboardJS.bind('ctrl + 0', e => { setColor(9) })
+      keyboardJS.bind('ctrl + 1', setColor(0))
+      keyboardJS.bind('ctrl + 2', setColor(1))
+      keyboardJS.bind('ctrl + 3', setColor(2))
+      keyboardJS.bind('ctrl + 4', setColor(3))
+      keyboardJS.bind('ctrl + 5', setColor(4))
+      keyboardJS.bind('ctrl + 6', setColor(5))
+      keyboardJS.bind('ctrl + 7', setColor(6))
+      keyboardJS.bind('ctrl + 8', setColor(7))
+      keyboardJS.bind('ctrl + 9', setColor(8))
+      keyboardJS.bind('ctrl + 0', setColor(9))
 
-      const selectPresetColor = i => {
+      const selectPresetColor = i => () => {
         this.setState({ selectedColor: this.state.presetColors[i] })
         this.state.inputSubmitHandler()
       }
-      keyboardJS.bind('1', e => { selectPresetColor(0) })
-      keyboardJS.bind('2', e => { selectPresetColor(1) })
-      keyboardJS.bind('3', e => { selectPresetColor(2) })
-      keyboardJS.bind('4', e => { selectPresetColor(3) })
-      keyboardJS.bind('5', e => { selectPresetColor(4) })
-      keyboardJS.bind('6', e => { selectPresetColor(5) })
-      keyboardJS.bind('7', e => { selectPresetColor(6) })
-      keyboardJS.bind('8', e => { selectPresetColor(7) })
-      keyboardJS.bind('9', e => { selectPresetColor(8) })
-      keyboardJS.bind('0', e => { selectPresetColor(9) })
+      keyboardJS.bind('1', selectPresetColor(0))
+      keyboardJS.bind('2', selectPresetColor(1))
+      keyboardJS.bind('3', selectPresetColor(2))
+      keyboardJS.bind('4', selectPresetColor(3))
+      keyboardJS.bind('5', selectPresetColor(4))
+      keyboardJS.bind('6', selectPresetColor(5))
+      keyboardJS.bind('7', selectPresetColor(6))
+      keyboardJS.bind('8', selectPresetColor(7))
+      keyboardJS.bind('9', selectPresetColor(8))
+      keyboardJS.bind('0', selectPresetColor(9))
     })
 
     keyboardJS.setContext('root')
+    window.c = () => (keyboardJS.getContext())
+    window.s = () => console.log(this.state)
 
     // -----------------
     // SET INITIAL STATE
@@ -728,6 +769,10 @@ class App extends Component {
   }
 
   render() {
+    const selectedTags = this.state.selectedNodes.length === 1 ?
+      this.state.selectedNodes[0].data('tags') :
+      null
+
     return (
       <div>
         <div id="cy">
@@ -744,6 +789,32 @@ class App extends Component {
               onChangeComplete={color => { this.setState({selectedColor: color.hex}) }}
               presetColors={this.state.presetColors}
             />
+          </div>
+        }
+        { this.state.showTags &&
+          <div className="sidebar">
+            <ul>
+              {Object.keys(this.state.tags).map(
+                (tag, i) => {
+                  let classes = []
+                  if (this.state.focusedTag && this.state.focusedTag !== tag) classes.push('faded')
+                  if (selectedTags && selectedTags.includes(tag)) {
+                      classes.push('selected')
+                  }
+                  return <li
+                    className={classes.join(' ')}
+                    key={`tag-${i}`}>
+                    <span
+                      style={{flex: 1}}
+                      onClick={() => { this.toggleFocusTag(tag) }}
+                    >{tag}</span>
+                    <span
+                      onClick={() => { this.selectTag(tag) }}
+                    >[select]</span>
+                  </li>
+                }
+              )}
+            </ul>
           </div>
         }
       </div>
