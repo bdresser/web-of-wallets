@@ -476,9 +476,128 @@ class App extends Component {
       }
     }
 
+    this.idsFromNodes = nodes => (
+      nodes.toArray().map(n => (`#${n.id()}`))
+    )
+
+    this.nodesFromIds = ids => (
+      cy.$(ids.join(','))
+    )
+
+    const saveData = () => {
+      const tags = {}
+      for (const tag in this.state.tags) {
+        const tagCollection = this.state.tags[tag]
+        if (tagCollection && tagCollection.length > 0) {
+          tags[tag] = this.idsFromNodes(tagCollection)
+        }
+      }
+
+      const viewports = Array(10)
+      for (const i in this.state.viewports) {
+        const viewport = this.state.viewports[i]
+        viewports[i] = viewport.nodes ?
+          { nodes: this.idsFromNodes(viewport.nodes) } :
+          viewport
+      }
+
+      const json = JSON.stringify({
+        cy: cy.json(),
+        collapsedNodes: this.idsFromNodes(this.state.collapsedNodes),
+        viewports: viewports,
+        tags: tags,
+        focusedTag: this.state.focusedTag,
+        presetColors: this.state.presetColors,
+      })
+
+      this.inputText()
+        .then(filename => {
+          const blob = new Blob([json], { type: 'application/octet-stream'})
+          const url = URL.createObjectURL(blob)
+          const link = document.createElement('a')
+          link.setAttribute('href', url)
+          link.setAttribute('download', `${filename}-${new Date().getTime()}.json`)
+          link.click()
+          URL.revokeObjectURL(url)
+        })
+        .catch(error => {
+          console.log('download save data failed:', error)
+        })
+        .finally(() => {
+          localStorage.setItem('mindgraph-data', json)
+          this.hideInput()
+        })
+
+      console.group('save graph')
+      console.log('json', json)
+      console.groupEnd()
+    }
+
+    const loadData = json => {
+      cy.startBatch()
+      uncollapseNodes(this.state.collapsedNodes)
+
+      cy.json(json.cy)
+
+      const collapsedNodes = json.collapsedNodes && json.collapsedNodes.length > 0 ?
+        this.nodesFromIds(json.collapsedNodes) :
+        cy.collection()
+      collapsedNodes.forEach(n => {
+        const successors = n.successors('node')
+        successors.data('display', 'none')
+        collapseNodes(n, successors.length)
+      })
+
+      const tags = {}
+      for (const tag in json.tags) {
+        tags[tag] = this.nodesFromIds(json.tags[tag])
+      }
+
+      const viewports = Array(10)
+      json.viewports.forEach((viewport, i) => {
+        viewports[i] = viewport.nodes ?
+          { nodes: this.nodesFromIds(viewport.nodes) } :
+          viewport
+      })
+
+      cy.endBatch()
+
+      this.setState({
+        collapsedNodes,
+        viewports,
+        tags,
+        focusedTag: json.focusedTag,
+        presetColors: json.presetColors,
+      })
+
+      console.group('load graph')
+      console.log('json', json)
+      console.groupEnd()
+    }
+
+    const loadLocalData = () => {
+      const json = JSON.parse(window.localStorage.getItem('mindgraph-data'))
+      loadData(json)
+    }
+
     // ----------------------
     // SET UP EVENT LISTENERS
     // ----------------------
+    document.body.addEventListener('dragenter', e => { e.preventDefault() })
+    document.body.addEventListener('dragover', e => { e.preventDefault() })
+    document.body.addEventListener('drop', e => {
+      e.stopPropagation()
+      e.preventDefault()
+      console.log(e.dataTransfer.files)
+      const reader = new FileReader()
+      const file = e.dataTransfer.files[0]
+      reader.onload = (f => e => {
+        const json = JSON.parse(e.target.result)
+        loadData(json)
+      })(file)
+      reader.readAsText(file)
+    })
+
     cy.on('select', 'node', e => {
       const selected = cy.$(':selected').toArray()
       this.setState({
@@ -547,85 +666,8 @@ class App extends Component {
     keyboardJS.withContext('root', () => {
       bindViewportKeys()
       keyboardJS.bind('a', null, addNode)
-      keyboardJS.bind('s', e => {
-        const json = cy.json()
-        window.localStorage.setItem('mindmap', JSON.stringify(json))
-        window.localStorage.setItem('presetColors', JSON.stringify(this.state.presetColors))
-        window.localStorage.setItem('collapsedNodes', JSON.stringify(
-          this.state.collapsedNodes.toArray().map(n => (`#${n.id()}`))
-        ))
-        const tags = {}
-        for (const tag in this.state.tags) {
-          const tagCollection = this.state.tags[tag]
-          if (tagCollection && tagCollection.length > 0) {
-            tags[tag] = tagCollection.toArray().map(n => (`#${n.id()}`))
-          }
-        }
-        window.localStorage.setItem('tags', JSON.stringify(tags))
-        window.localStorage.setItem('focusedTag', JSON.stringify(this.state.focusedTag))
-        const viewports = Array(10)
-        for (const i in this.state.viewports) {
-          const viewport = this.state.viewports[i]
-          viewports[i] = viewport.nodes ?
-            { nodes: viewport.nodes.toArray().map(n => `#${n.id()}`)} :
-            viewport
-        }
-        window.localStorage.setItem('viewports', JSON.stringify(viewports))
-        console.group('save graph')
-        console.log('json', json)
-        console.log('presetColors', this.state.presetColors)
-        console.log('collapsedNodes', this.state.collapsedNodes)
-        console.log('tags', this.state.tags)
-        console.log('focusedTag', this.state.focusedTag)
-        console.log('viewports', this.state.viewports)
-        console.groupEnd()
-      })
-      keyboardJS.bind('l', e => {
-        cy.startBatch()
-        uncollapseNodes(this.state.collapsedNodes)
-        const json = JSON.parse(window.localStorage.getItem('mindmap'))
-        cy.json(json)
-        const presetColors = JSON.parse(window.localStorage.getItem('presetColors'))
-        const collapsedNodeIds = JSON.parse(window.localStorage.getItem('collapsedNodes'))
-        const collapsedNodes = collapsedNodeIds.length > 0 ? cy.$(collapsedNodeIds.join(',')) : cy.collection()
-        const tagsToIds = JSON.parse(window.localStorage.getItem('tags'))
-        const tags = {}
-        for (const tag in tagsToIds) {
-          tags[tag] = cy.$(tagsToIds[tag].join(','))
-        }
-        const focusedTag = JSON.parse(window.localStorage.getItem('focusedTag'))
-        const viewportsNodeIds = JSON.parse(window.localStorage.getItem('viewports'))
-        const viewports = Array(10)
-        for (const i in viewportsNodeIds) {
-          const viewport = viewportsNodeIds[i]
-          viewports[i] = viewport.nodes ?
-            { nodes: cy.$(viewport.nodes.join(',')) } :
-            viewport
-        }
-
-        collapsedNodes.forEach(n => {
-          const successors = n.successors('node')
-          successors.data('display', 'none')
-          collapseNodes(n, successors.length)
-        })
-        cy.endBatch()
-
-        this.setState({
-          presetColors,
-          collapsedNodes,
-          tags,
-          focusedTag,
-          viewports,
-        })
-        console.group('load graph')
-        console.log('json', json)
-        console.log('presetColors', presetColors)
-        console.log('collapsedNodes', collapsedNodes)
-        console.log('tags', tags)
-        console.log('focusedTag', focusedTag)
-        console.log('viewports', viewports)
-        console.groupEnd()
-      })
+      keyboardJS.bind('s', null, saveData)
+      keyboardJS.bind('l', loadLocalData)
       keyboardJS.bind('x', null, e => {
         if (!this.state.runningLayout) {
           cy.layout(layoutOptions).run()
