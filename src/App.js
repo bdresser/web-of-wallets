@@ -60,8 +60,8 @@ const defaultNodeData = {
   display: 'element',
   tags: [],
 }
-
 const defaultNodeColor = 'grey'
+const defaultViewport = {zoom: 1, pan: {x:0, y:0}}
 
 class App extends Component {
   constructor(props) {
@@ -73,6 +73,7 @@ class App extends Component {
       selectedSibling: null,
       tags: {},
       focusedTag: null,
+      viewports: Array(10).fill(defaultViewport),
 
       showInput: false,
       lastContext: null,
@@ -173,7 +174,8 @@ class App extends Component {
       if (edge.length) {
         cy.remove(edgeId)
       } else {
-        cy.add({ data: { id: a + b, source: a, target: b } })
+        const edge = cy.add({ data: { id: a + b, source: a, target: b } })
+        if (this.state.focusedTag) edge.addClass('fade')
       }
     }
 
@@ -245,6 +247,32 @@ class App extends Component {
       this.setState({
         collapsedNodes: this.state.collapsedNodes
           .difference(selectedCollapsedNodes)
+      })
+      this.state.selectedNodes.forEach(n => {
+        n.data('tags').forEach(tag => {
+          console.log(`remove ${n.id()} from tags[${tag}]`)
+          this.setState({
+            tags: {
+              ...this.state.tags,
+              [tag]: this.state.tags[tag].filter(i => (i !== n))
+            }
+          })
+        })
+
+        this.state.viewports.forEach((viewport, i) => {
+          if (viewport.nodes && viewport.nodes.contains(n)) {
+            const newNodes = viewport.nodes.difference(n)
+            const newViewport = newNodes.length > 0 ?
+              { nodes: newNodes } :
+              defaultViewport
+            const viewports = [
+              ...this.state.viewports.slice(0, i),
+              newViewport,
+              ...this.state.viewports.slice(i + 1)
+            ]
+            this.setState({ viewports })
+          }
+        })
       })
       cy.collection(this.state.selectedNodes).remove()
     }
@@ -416,18 +444,50 @@ class App extends Component {
         .finally(() => { this.hideInput() })
     }
 
+    const setViewport = i => () => {
+      const viewport = this.state.selectedNodes.length > 0 ?
+        { nodes: cy.collection(this.state.selectedNodes) } :
+        { zoom: cy.zoom(), pan: { ...cy.pan() }}
+      this.setState({
+        viewports: [
+          ...this.state.viewports.slice(0, i),
+          viewport,
+          ...this.state.viewports.slice(i + 1)
+        ]
+      })
+    }
+
+    const selectViewport = i => () => {
+      const viewport = this.state.viewports[i]
+      if (viewport.nodes) {
+        const selected = cy.collection(this.state.selectedNodes)
+        if (selected.same(viewport.nodes)) {
+          if (viewport.nodes.length === 1) {
+            cy.center(viewport.nodes)
+          } else {
+            cy.fit(viewport.nodes, 50)
+          }
+        } else {
+          selected.unselect()
+          viewport.nodes.select()
+        }
+      } else {
+        cy.viewport(this.state.viewports[i])
+      }
+    }
+
     // ----------------------
     // SET UP EVENT LISTENERS
     // ----------------------
     cy.on('select', 'node', e => {
+      const selected = cy.$(':selected').toArray()
       this.setState({
-        // selectedNodes: [...this.state.selectedNodes, e.target]
-        selectedNodes: cy.$(':selected').toArray()
+        selectedNodes: selected
       })
-      const n = this.state.selectedNodes.length
+      const n = selected.length
       if (n === 1) {
         keyboardJS.setContext('singleNode')
-        setSiblings(this.state.selectedNodes[0])
+        setSiblings(selected[0])
       } else {
         keyboardJS.setContext('multipleNodes')
       }
@@ -461,7 +521,31 @@ class App extends Component {
     // -------------------
     // SET UP KEY BINDINGS
     // -------------------
+    const bindViewportKeys = () => {
+      keyboardJS.bind('ctrl + 1', setViewport(0))
+      keyboardJS.bind('ctrl + 2', setViewport(1))
+      keyboardJS.bind('ctrl + 3', setViewport(2))
+      keyboardJS.bind('ctrl + 4', setViewport(3))
+      keyboardJS.bind('ctrl + 5', setViewport(4))
+      keyboardJS.bind('ctrl + 6', setViewport(5))
+      keyboardJS.bind('ctrl + 7', setViewport(6))
+      keyboardJS.bind('ctrl + 8', setViewport(7))
+      keyboardJS.bind('ctrl + 9', setViewport(8))
+      keyboardJS.bind('ctrl + 0', setViewport(9))
+      keyboardJS.bind('1', selectViewport(0))
+      keyboardJS.bind('2', selectViewport(1))
+      keyboardJS.bind('3', selectViewport(2))
+      keyboardJS.bind('4', selectViewport(3))
+      keyboardJS.bind('5', selectViewport(4))
+      keyboardJS.bind('6', selectViewport(5))
+      keyboardJS.bind('7', selectViewport(6))
+      keyboardJS.bind('8', selectViewport(7))
+      keyboardJS.bind('9', selectViewport(8))
+      keyboardJS.bind('0', selectViewport(9))
+    }
+
     keyboardJS.withContext('root', () => {
+      bindViewportKeys()
       keyboardJS.bind('a', null, addNode)
       keyboardJS.bind('s', e => {
         const json = cy.json()
@@ -479,12 +563,21 @@ class App extends Component {
         }
         window.localStorage.setItem('tags', JSON.stringify(tags))
         window.localStorage.setItem('focusedTag', JSON.stringify(this.state.focusedTag))
+        const viewports = Array(10)
+        for (const i in this.state.viewports) {
+          const viewport = this.state.viewports[i]
+          viewports[i] = viewport.nodes ?
+            { nodes: viewport.nodes.toArray().map(n => `#${n.id()}`)} :
+            viewport
+        }
+        window.localStorage.setItem('viewports', JSON.stringify(viewports))
         console.group('save graph')
         console.log('json', json)
         console.log('presetColors', this.state.presetColors)
         console.log('collapsedNodes', this.state.collapsedNodes)
         console.log('tags', this.state.tags)
         console.log('focusedTag', this.state.focusedTag)
+        console.log('viewports', this.state.viewports)
         console.groupEnd()
       })
       keyboardJS.bind('l', e => {
@@ -501,6 +594,14 @@ class App extends Component {
           tags[tag] = cy.$(tagsToIds[tag].join(','))
         }
         const focusedTag = JSON.parse(window.localStorage.getItem('focusedTag'))
+        const viewportsNodeIds = JSON.parse(window.localStorage.getItem('viewports'))
+        const viewports = Array(10)
+        for (const i in viewportsNodeIds) {
+          const viewport = viewportsNodeIds[i]
+          viewports[i] = viewport.nodes ?
+            { nodes: cy.$(viewport.nodes.join(',')) } :
+            viewport
+        }
 
         collapsedNodes.forEach(n => {
           const successors = n.successors('node')
@@ -514,6 +615,7 @@ class App extends Component {
           collapsedNodes,
           tags,
           focusedTag,
+          viewports,
         })
         console.group('load graph')
         console.log('json', json)
@@ -521,6 +623,7 @@ class App extends Component {
         console.log('collapsedNodes', collapsedNodes)
         console.log('tags', tags)
         console.log('focusedTag', focusedTag)
+        console.log('viewports', viewports)
         console.groupEnd()
       })
       keyboardJS.bind('x', null, e => {
@@ -544,6 +647,7 @@ class App extends Component {
     })
 
     keyboardJS.withContext('singleNode', () => {
+      bindViewportKeys()
       keyboardJS.bind('a', null, addChildNode)
       keyboardJS.bind('e', null, e => {
         const selectedNode = this.state.selectedNodes[0]
@@ -665,6 +769,7 @@ class App extends Component {
     })
 
     keyboardJS.withContext('multipleNodes', () => {
+      bindViewportKeys()
       keyboardJS.bind('c', e => {
         toggleEdges()
       }, null)
@@ -758,7 +863,7 @@ class App extends Component {
 
     keyboardJS.setContext('root')
     window.c = () => (keyboardJS.getContext())
-    window.s = () => console.log(this.state)
+    window.s = () => (this.state)
 
     // -----------------
     // SET INITIAL STATE
