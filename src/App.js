@@ -165,7 +165,8 @@ class App extends Component {
       fit: false,
       nodeDimensionsIncludeLabels: true,
       randomize: false,
-      idealEdgeLength: 100,
+      idealEdgeLength: 80,
+      edgeElasticity: 0.04,
     }
 
     const toggleEdge = (a, b) => {
@@ -435,7 +436,7 @@ class App extends Component {
           const sourceId = selectedNode.id()
           const targetId = this.nextId()
           const newEles = cy.add([
-            getNewNode(targetId, text, selectedNode.data('color')),
+            getNewNode(targetId, text, defaultNodeColor),
             getNewEdge(sourceId, targetId)
           ])
           if (this.state.focusedTag) newEles.addClass('fade')
