@@ -83,7 +83,18 @@ class App extends Component {
       inputCancelHandler: null,
       showTags: true,
 
-      presetColors: ['#fff','#eee','#ddd','#ccc','#bbb','#aaa','#999','#888','#777','#000'],
+      presetColors: [
+        "#ce5454",
+        "#dd923e",
+        "#beab1c",
+        "#83a83a",
+        "#66b3a9",
+        "#5a94ca",
+        "#8f77c4",
+        "#cf5cb7",
+        "grey",
+        "#1d1d1d"
+      ],
 
       runningLayout: false,
     }
@@ -600,7 +611,7 @@ class App extends Component {
     })
 
     cy.on('select', 'node', e => {
-      const selected = cy.$(':selected').toArray()
+      const selected = cy.$('node:selected').toArray()
       this.setState({
         selectedNodes: selected
       })
@@ -669,7 +680,7 @@ class App extends Component {
       keyboardJS.bind('a', null, addNode)
       keyboardJS.bind('s', null, saveData)
       keyboardJS.bind('l', loadLocalData)
-      keyboardJS.bind('x', null, e => {
+      keyboardJS.bind('z', null, e => {
         if (!this.state.runningLayout) {
           cy.layout(layoutOptions).run()
         }
@@ -840,7 +851,7 @@ class App extends Component {
           })
           .finally(() => { this.hideColor() })
       }, null)
-      keyboardJS.bind('x', e => {
+      keyboardJS.bind('z', e => {
         if (!this.state.runningLayout) {
           const others = cy.nodes().difference(':selected')
           others.lock()
@@ -849,6 +860,41 @@ class App extends Component {
         }
       }, null)
       keyboardJS.bind('t', null, getTagAndToggle)
+      keyboardJS.bind('x', null, e => {
+        const sumX = this.state.selectedNodes.reduce((acc, v) => (acc + v.modelPosition().x), 0)
+        const avgX = sumX / this.state.selectedNodes.length
+        this.state.selectedNodes.forEach(n => {
+          n.modelPosition({x: avgX})
+        })
+      })
+      keyboardJS.bind('y', null, e => {
+        const sumY = this.state.selectedNodes.reduce((acc, v) => (acc + v.modelPosition().y), 0)
+        const avgY = sumY / this.state.selectedNodes.length
+        this.state.selectedNodes.forEach(n => {
+          n.modelPosition({y: avgY})
+        })
+      })
+      const spaceEvenly = (axis, dimension) => e => {
+        let numSelected = this.state.selectedNodes.length
+        if (numSelected > 2) {
+          const sorted = this.state.selectedNodes.concat().sort((a, b) => (
+            b.modelPosition()[axis] > a.modelPosition()[axis] ? -1 : 1
+          ))
+          const first = sorted.splice(0, 1)[0]
+          const last = sorted.splice(-1, 1)[0]
+          const spaceStart = first.modelPosition()[axis] + first[dimension]() / 2
+          const spaceEnd = last.modelPosition()[axis] - last[dimension]() / 2
+          const totalSpacing = spaceEnd - spaceStart - sorted.reduce((acc, n) => (acc + n[dimension]()), 0)
+          const avgSpacing = totalSpacing / (numSelected - 1)
+          let nextPosition = spaceStart + avgSpacing
+          sorted.forEach(n => {
+            n.modelPosition({[axis]: nextPosition + n[dimension]() / 2})
+            nextPosition += n[dimension]() + avgSpacing
+          })
+        }
+      }
+      keyboardJS.bind('v', null, spaceEvenly('y', 'height'))
+      keyboardJS.bind('h', null, spaceEvenly('x', 'width'))
     })
 
     keyboardJS.withContext('textInput', () => {
@@ -861,7 +907,7 @@ class App extends Component {
     })
 
     keyboardJS.withContext('colorInput', () => {
-      keyboardJS.bind('enter', null, e => {
+      keyboardJS.bind('f', null, e => {
         this.state.inputSubmitHandler()
       })
       keyboardJS.bind(['escape', 'ctrl + ['], null, e => {
