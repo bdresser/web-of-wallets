@@ -2,6 +2,7 @@
   "name": "mind-graph",
   "version": "0.1.0",
   "private": true,
+  "homepage": "http://b0bby.co/web-of-wallets",
   "dependencies": {
     "cytoscape": "^3.2.9",
     "cytoscape-cose-bilkent": "^4.0.0",
